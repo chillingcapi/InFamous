@@ -1,3 +1,5 @@
+-- fuck me
+
 pcall(function()
     loadstring(game:HttpGet("https://raw.githubusercontent.com/chillingcapi/InFamous/refs/heads/main/Loading.lua"))()
 end)
