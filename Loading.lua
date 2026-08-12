@@ -11,7 +11,16 @@ local FontUrl = "https://github.com/chillingcapi/Relay/raw/main/InterSemibold.tt
 local DownloadImage = "rbxassetid://129452692971138"
 local ImageFolder = "SweetieHub/Images"
 local TitleSize = 20
-local MinimumTime = 2.5
+local MinimumTime = 0.6
+local Concurrency = 10
+local FontDir = "SweetieHub/Fonts"
+local FontRepo = "https://github.com/chillingcapi/Relay/raw/main/fonts/"
+local FontList = {
+    "Bricolage", "Chivo", "DMSans", "Epilogue", "Figtree", "Geist",
+    "InstrumentSans", "Lexend", "Manrope", "Onest", "Outfit", "PlusJakartaSans",
+    "RedHatDisplay", "Rubik", "SchibstedGrotesk", "Sora", "SpaceGrotesk",
+    "Syne", "Urbanist", "WorkSans",
+}
 
 local Greeting = "Welcome, please wait while we download our assets"
 local ReadyLine = "Almost ready"
@@ -38,6 +47,15 @@ local Assets = {
     { Name = "Auto Merge Chickens",    Url = "https://raw.githubusercontent.com/chillingcapi/Images/main/MergeChickensImage.png" },
     { Name = "Auto Upgrade Process",   Url = "https://raw.githubusercontent.com/chillingcapi/Images/main/UpgradeProgessImage.png" },
 }
+
+for _, Name in ipairs(FontList) do
+    table.insert(Assets, {
+        Name = Name,
+        Url = FontRepo .. Name .. ".ttf",
+        Path = FontDir .. "/" .. Name .. ".ttf",
+        Minimum = 4096,
+    })
+end
 
 local function New(Class, Parent, Props)
     local Object = Instance.new(Class)
@@ -118,15 +136,24 @@ local function EnsureFolders()
     end)
 end
 
-local function Fetch(Url)
+local function Fetch(Asset)
     if not (writefile and isfile) then return false end
-    local Path = CachePath(Url)
+
+    local Url = Asset.Url
+    local Path = Asset.Path or CachePath(Url)
+    local Minimum = Asset.Minimum or 128
+
     local Cached = false
-    pcall(function() Cached = isfile(Path) end)
+    pcall(function()
+        if isfile(Path) then
+            local Body = readfile(Path)
+            Cached = type(Body) == "string" and #Body >= Minimum
+        end
+    end)
     if Cached then return true end
 
     local Ok, Body = pcall(function() return game:HttpGet(Url) end)
-    if not Ok or type(Body) ~= "string" or #Body < 128 then return false end
+    if not Ok or type(Body) ~= "string" or #Body < Minimum then return false end
     return (pcall(writefile, Path, Body))
 end
 
@@ -405,6 +432,23 @@ end
 task.spawn(function()
     local Started = os.clock()
     EnsureFolders()
+    pcall(function() if not isfolder(FontDir) then makefolder(FontDir) end end)
+
+    local Cursor, Finished = 0, 0
+    local Label = ""
+
+    for _ = 1, Concurrency do
+        task.spawn(function()
+            while true do
+                Cursor = Cursor + 1
+                local Asset = Assets[Cursor]
+                if not Asset then break end
+                Label = Asset.Name
+                pcall(Fetch, Asset)
+                Finished = Finished + 1
+            end
+        end)
+    end
 
     Tween(Backdrop, { BackgroundTransparency = 0.25 }, 0.35)
     Tween(Holder, { Position = Home }, 0.75, Enum.EasingStyle.Quint)
@@ -414,19 +458,36 @@ task.spawn(function()
 
     SetProgress(0)
     Morph(Greeting)
-    task.wait(#Greeting * 0.028 + 0.42 + 0.5)
 
-    for Index, Asset in ipairs(Assets) do
-        Morph("Downloading " .. Asset.Name, true)
-        Fetch(Asset.Url)
-        SetProgress(Index)
-        task.wait()
+    local Docked = false
+    local Shown = ""
+
+    while Finished < Total do
+        if not Docked and getgenv and getgenv().SweetieUnload then
+            Docked = true
+            Tween(Backdrop, { BackgroundTransparency = 1 }, 0.4)
+            Tween(Holder, {
+                Position = UDim2.new(0.5, 0, 0, 14),
+                AnchorPoint = Vector2.new(0.5, 0),
+                Size = UDim2.fromOffset(Holder.AbsoluteSize.X * 0.72, Holder.AbsoluteSize.Y * 0.72),
+            }, 0.5, Enum.EasingStyle.Quint)
+        end
+
+        if Label ~= "" and Label ~= Shown then
+            Shown = Label
+            Morph("Downloading " .. Label, true)
+        end
+
+        SetProgress(Finished)
+        task.wait(0.05)
     end
+
+    SetProgress(Total)
 
     local Left = MinimumTime - (os.clock() - Started)
     if Left > 0 then task.wait(Left) end
 
     Morph(ReadyLine, true)
-    task.wait(0.6)
+    task.wait(0.45)
     Finish()
 end)
